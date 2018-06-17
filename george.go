@@ -10,7 +10,6 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
-	"log"
 	"os"
 	"os/exec"
 	"os/user"
@@ -19,132 +18,151 @@ import (
 
 	"github.com/gobwas/glob"
 	"github.com/zippoxer/george/forge"
-	kingpin "gopkg.in/alecthomas/kingpin.v2"
 )
 
-var (
-	encryptionKey = &[32]byte{0xfb, 0xb7, 0x41, 0xbf, 0xb2, 0xe5, 0x8, 0xb8, 0x3e, 0x6e, 0x4, 0x5f, 0x39, 0x2c, 0x55, 0xb9, 0xa1, 0x4e, 0xbb, 0x72, 0x5a, 0xd7, 0xa0, 0xe1, 0xb3, 0x83, 0x11, 0xeb, 0x98, 0xd7, 0x19, 0xce}
-)
+type George struct {
+	client  *forge.Client
+	cache   *cache
+	homeDir string
+}
 
-var (
-	app = kingpin.New("george", "A toolkit for Laravel Forge.")
+func New(client *forge.Client) *George {
+	usr, err := user.Current()
+	if err != nil {
+		panic(err)
+	}
+	return &George{
+		client:  client,
+		cache:   newCache(client),
+		homeDir: usr.HomeDir,
+	}
+}
 
-	appLogin    = app.Command("login", "Login with API key provided at https://forge.laravel.com/user/profile#/api")
-	appLoginKey = appLogin.Arg("api-key", "").Required().String()
-
-	appSSH       = app.Command("ssh", "SSH to a server by name, IP or site domain. Wildcards are supported.")
-	appSSHTarget = appSSH.Arg("server", "Server name, IP or site domain.").String()
-)
-
-func main() {
-	log.SetFlags(log.LstdFlags | log.Lshortfile)
-	app.HelpFlag.Hidden()
-	cmd := kingpin.MustParse(app.Parse(os.Args[1:]))
-
-	key, err := loadAPIKey()
-	if os.IsNotExist(err) {
-		if cmd != "login" {
-			log.Fatal("You're not logged in. Login with 'george <api-key>'")
-		}
-	} else if err != nil {
-		log.Fatal(err)
+func (g *George) Search(pattern string) (*forge.Server, *forge.Site, error) {
+	if pattern == "" {
+		pattern = "*"
+	}
+	expr, err := glob.Compile(pattern)
+	if err != nil {
+		return nil, nil, err
 	}
 
-	client := forge.New(key)
-
-	switch cmd {
-	case appLogin.FullCommand():
-		err = saveAPIKey(*appLoginKey)
+	servers, err := g.cache.Servers()
+	if err != nil {
+		return nil, nil, err
+	}
+	var matchingServers []forge.Server
+	for _, server := range servers {
+		if expr.Match(server.Name) ||
+			expr.Match(server.IPAddress) {
+			matchingServers = append(matchingServers, server)
+		}
+	}
+	if len(matchingServers) > 1 {
+		err = g.printServers(servers, expr)
 		if err != nil {
-			log.Fatal(err)
+			return nil, nil, err
 		}
-	case appSSH.FullCommand():
-		target := *appSSHTarget
-		if target == "" {
-			target = "*"
-		}
-		expr, err := glob.Compile(target)
+		return nil, nil, fmt.Errorf("More than one server matches %q.", pattern)
+	}
+	if len(matchingServers) == 0 {
+		serverSites, err := g.cache.ServerSites(servers)
 		if err != nil {
-			log.Fatal(err)
+			return nil, nil, err
 		}
-
-		sshKey, err := readSSHKey()
-		if err != nil {
-			log.Fatal(err)
-		}
-		keyName := generateKeyName(sshKey)
-
-		servers, err := client.Servers().List()
-		if err != nil {
-			log.Fatal(err)
-		}
-		var matchingServers []forge.Server
-		for i := range servers {
-			if expr.Match(servers[i].Name) ||
-				expr.Match(servers[i].IPAddress) {
-				matchingServers = append(matchingServers, servers[i])
+		var matchingSites []forge.Site
+		for _, server := range serverSites {
+			for _, site := range server.Sites {
+				if expr.Match(site.Name) {
+					matchingSites = append(matchingSites, site)
+				}
 			}
 		}
-		if len(matchingServers) == 0 {
-			log.Fatal("Server not found.")
-		}
-		if len(matchingServers) > 1 {
-			fmt.Printf("Available servers:\n")
-			for _, s := range matchingServers {
-				fmt.Printf("  %s (%s)\n", s.Name, s.IPAddress)
+		if len(matchingSites) > 1 {
+			err = g.printServers(servers, expr)
+			if err != nil {
+				return nil, nil, err
 			}
-			os.Exit(1)
+			return nil, nil, fmt.Errorf("More than one site matches %q.", pattern)
 		}
-
-		server := servers[0]
-		keys, err := client.Keys(server.Id).List()
-		if err != nil {
-			log.Fatal(err)
+		if len(matchingSites) == 0 {
+			return nil, nil, fmt.Errorf("Server or site not found.")
 		}
-		var key *forge.Key
-		for i := range keys {
-			if keys[i].Name == keyName {
-				key = &keys[i]
+		site := &matchingSites[0]
+		var server *forge.Server
+		for _, s := range servers {
+			if s.Id == site.ServerId {
+				server = &s
 				break
 			}
 		}
-		if key == nil {
-			key, err := client.Keys(server.Id).Create(keyName, string(sshKey))
-			if err != nil {
-				log.Fatal(err)
-			}
-			for key.Status == "installing" {
-				key, err = client.Keys(server.Id).Get(key.Id)
-				if err != nil {
-					log.Fatal(err)
-				}
-				time.Sleep(time.Millisecond * 500)
-			}
-			if key.Status != "installed" {
-				log.Fatalf("failed installing SSH key: status is %v", key.Status)
-			}
+		if server == nil {
+			return nil, nil, fmt.Errorf("Site found, but it's server wasn't found. Seems like data is corrupt.")
 		}
-
-		cmd := exec.Command("ssh", "forge@"+server.IPAddress)
-		cmd.Stdin = os.Stdin
-		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
-		err = cmd.Run()
-		if err != nil {
-			log.Fatal(err)
-		}
-	default:
-		app.FatalUsage("no command specified.")
+		return server, site, nil
 	}
-	return
+	return &matchingServers[0], nil, nil
 }
 
-func readSSHKey() ([]byte, error) {
-	usr, err := user.Current()
+func (g *George) printServers(servers []forge.Server, expr glob.Glob) error {
+	fmt.Printf("Available servers:\n")
+	serverSites, err := g.cache.ServerSites(servers)
 	if err != nil {
-		return nil, err
+		return err
 	}
-	privateKeyPath := filepath.Join(usr.HomeDir, ".ssh", "id_rsa")
+	for _, server := range serverSites {
+		fmt.Printf("  %s (%s)\n", server.Name, server.IPAddress)
+		for _, site := range server.Sites {
+			if expr != nil && !expr.Match(site.Name) {
+				continue
+			}
+			fmt.Printf("    %s\n", site.Name)
+		}
+	}
+	return nil
+}
+
+// SSHInstallKey registers the public SSH key with the given forge server,
+// returning an error if installation failed.
+func (g *George) SSHInstallKey(serverId int) error {
+	publicKey, err := g.sshPublicKey()
+	if err != nil {
+		return err
+	}
+	keyName := g.sshKeyName(publicKey)
+
+	keys, err := g.client.Keys(serverId).List()
+	if err != nil {
+		return err
+	}
+	var key *forge.Key
+	for i := range keys {
+		if keys[i].Name == keyName {
+			key = &keys[i]
+			break
+		}
+	}
+	if key == nil {
+		key, err := g.client.Keys(serverId).Create(keyName, string(publicKey))
+		if err != nil {
+			return err
+		}
+		for key.Status == "installing" {
+			key, err = g.client.Keys(serverId).Get(key.Id)
+			if err != nil {
+				return err
+			}
+			time.Sleep(time.Millisecond * 500)
+		}
+		if key.Status != "installed" {
+			return fmt.Errorf("failed installing SSH key: status is %v", key.Status)
+		}
+	}
+	return nil
+}
+
+func (g *George) sshPublicKey() ([]byte, error) {
+	privateKeyPath := filepath.Join(g.homeDir, ".ssh", "id_rsa")
 	publicKeyPath := privateKeyPath + ".pub"
 	data, err := ioutil.ReadFile(publicKeyPath)
 	if os.IsNotExist(err) || len(data) == 0 {
@@ -154,51 +172,16 @@ func readSSHKey() ([]byte, error) {
 		if err != nil {
 			return nil, fmt.Errorf("ssh-keygen: %v", err)
 		}
-		return readSSHKey()
+		return g.sshPublicKey()
 	}
 	return data, err
 }
 
-func generateKeyName(key []byte) string {
+// sshKeyName generates a unique, reproducible name for the given SSH key.
+func (s *George) sshKeyName(key []byte) string {
 	sum := sha512.Sum512_224(key)
 	sumStr := base32.StdEncoding.WithPadding(base32.NoPadding).EncodeToString(sum[:])
 	return "george-" + sumStr
-}
-
-func saveAPIKey(key string) error {
-	ciphertext, err := Encrypt([]byte(key), encryptionKey)
-	if err != nil {
-		return err
-	}
-	usr, err := user.Current()
-	if err != nil {
-		return err
-	}
-	return ioutil.WriteFile(filepath.Join(usr.HomeDir, ".george-key"), ciphertext, 0644)
-}
-
-func loadAPIKey() (string, error) {
-	path, err := apiKeyPath()
-	if err != nil {
-		return "", err
-	}
-	ciphertext, err := ioutil.ReadFile(path)
-	if err != nil {
-		return "", err
-	}
-	key, err := Decrypt(ciphertext, encryptionKey)
-	if err != nil {
-		return "", err
-	}
-	return string(key), nil
-}
-
-func apiKeyPath() (string, error) {
-	usr, err := user.Current()
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(usr.HomeDir, ".george-key"), nil
 }
 
 // Encrypt encrypts data using 256-bit AES-GCM.  This both hides the content of

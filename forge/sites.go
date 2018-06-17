@@ -7,6 +7,7 @@ import (
 
 type Site struct {
 	Id                 int         `json:"id"`
+	ServerId           int         `json:"server_id"`
 	Name               string      `json:"name"`
 	Directory          string      `json:"directory"`
 	Wildcards          bool        `json:"wildcards"`
@@ -39,6 +40,9 @@ func (s *Sites) List() ([]Site, error) {
 	err := s.c.Do(context.Background(), req, &resp)
 	if err != nil {
 		return nil, err
+	}
+	for i := range resp.Sites {
+		resp.Sites[i].ServerId = s.serverId
 	}
 	return resp.Sites, nil
 }
