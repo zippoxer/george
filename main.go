@@ -60,7 +60,7 @@ func main() {
 			log.Fatal(err)
 		}
 	case appSSH.FullCommand():
-		server, _, err := george.Search(*appSSHTarget)
+		server, site, err := george.Search(*appSSHTarget)
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -68,7 +68,13 @@ func main() {
 		if err != nil {
 			log.Fatal(err)
 		}
-		cmd := exec.Command("ssh", "forge@"+server.IPAddress)
+		var flags, args []string
+		args = append(args, "forge@"+server.IPAddress)
+		if site != nil {
+			flags = append(flags, "-t")
+			args = append(args, fmt.Sprintf("cd %q; bash -l", site.Name))
+		}
+		cmd := exec.Command("ssh", append(flags, args...)...)
 		cmd.Stdin = os.Stdin
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
