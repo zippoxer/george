@@ -14,7 +14,10 @@ import (
 	"os/exec"
 	"os/user"
 	"path/filepath"
+	"strings"
 	"time"
+
+	"golang.org/x/crypto/ssh"
 
 	"github.com/gobwas/glob"
 	"github.com/zippoxer/george/forge"
@@ -39,12 +42,12 @@ func New(client *forge.Client) *George {
 }
 
 func (g *George) Search(pattern string) (*forge.Server, *forge.Site, error) {
-	if pattern == "" {
-		pattern = "*"
-	}
-	expr, err := glob.Compile(pattern)
+	serverGlob, siteGlob, err := g.compileSearchPattern(pattern)
 	if err != nil {
 		return nil, nil, err
+	}
+	if siteGlob != nil {
+		return g.SearchSite(pattern)
 	}
 
 	servers, err := g.cache.Servers()
@@ -53,73 +56,157 @@ func (g *George) Search(pattern string) (*forge.Server, *forge.Site, error) {
 	}
 	var matchingServers []forge.Server
 	for _, server := range servers {
-		if expr.Match(server.Name) ||
-			expr.Match(server.IPAddress) {
+		if serverGlob.Match(server.Name) || serverGlob.Match(server.IPAddress) {
 			matchingServers = append(matchingServers, server)
 		}
 	}
 	if len(matchingServers) > 1 {
-		err = g.printServers(servers, expr)
+		err = g.printServers(servers, serverGlob, siteGlob)
 		if err != nil {
 			return nil, nil, err
 		}
 		return nil, nil, fmt.Errorf("More than one server matches %q.", pattern)
 	}
 	if len(matchingServers) == 0 {
-		serverSites, err := g.cache.ServerSites(servers)
-		if err != nil {
-			return nil, nil, err
-		}
-		var matchingSites []forge.Site
-		for _, server := range serverSites {
-			for _, site := range server.Sites {
-				if expr.Match(site.Name) {
-					matchingSites = append(matchingSites, site)
-				}
-			}
-		}
-		if len(matchingSites) > 1 {
-			err = g.printServers(servers, expr)
-			if err != nil {
-				return nil, nil, err
-			}
-			return nil, nil, fmt.Errorf("More than one site matches %q.", pattern)
-		}
-		if len(matchingSites) == 0 {
-			return nil, nil, fmt.Errorf("Server or site not found.")
-		}
-		site := &matchingSites[0]
-		var server *forge.Server
-		for _, s := range servers {
-			if s.Id == site.ServerId {
-				server = &s
-				break
-			}
-		}
-		if server == nil {
-			return nil, nil, fmt.Errorf("Site found, but it's server wasn't found. Seems like data is corrupt.")
-		}
-		return server, site, nil
+		return g.SearchSite(pattern)
 	}
 	return &matchingServers[0], nil, nil
 }
 
-func (g *George) printServers(servers []forge.Server, expr glob.Glob) error {
+func (g *George) SearchSite(pattern string) (*forge.Server, *forge.Site, error) {
+	serverGlob, siteGlob, err := g.compileSearchPattern(pattern)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	servers, err := g.cache.Servers()
+	if err != nil {
+		return nil, nil, err
+	}
+	serverSites, err := g.cache.ServerSites(servers)
+	if err != nil {
+		return nil, nil, err
+	}
+	var matchingSites []forge.Site
+	for _, server := range serverSites {
+		if siteGlob != nil && !serverGlob.Match(server.Name) && !serverGlob.Match(server.IPAddress) {
+			continue
+		}
+		for _, site := range server.Sites {
+			if siteGlob == nil && serverGlob.Match(site.Name) ||
+				siteGlob != nil && siteGlob.Match(site.Name) {
+				matchingSites = append(matchingSites, site)
+			}
+		}
+	}
+	if len(matchingSites) > 1 {
+		err = g.printServers(servers, serverGlob, siteGlob)
+		if err != nil {
+			return nil, nil, err
+		}
+		return nil, nil, fmt.Errorf("More than one site matches %q.", pattern)
+	}
+	if len(matchingSites) == 0 {
+		err = g.printServers(servers, serverGlob, siteGlob)
+		if err != nil {
+			return nil, nil, err
+		}
+		return nil, nil, fmt.Errorf("Server or site not found.")
+	}
+	site := &matchingSites[0]
+	var server *forge.Server
+	for _, s := range servers {
+		if s.Id == site.ServerId {
+			server = &s
+			break
+		}
+	}
+	if server == nil {
+		return nil, nil, fmt.Errorf("Site found, but it's server wasn't found. Seems like data is corrupt.")
+	}
+	return server, site, nil
+}
+
+func (g *George) compileSearchPattern(pattern string) (server, site glob.Glob, err error) {
+	var serverPat, sitePat string
+	patterns := strings.Split(pattern, ":")
+	if len(patterns) == 2 {
+		serverPat, sitePat = patterns[0], patterns[1]
+	} else {
+		serverPat, sitePat = patterns[0], ""
+	}
+	if serverPat == "" {
+		serverPat = "*"
+	}
+	server, err = glob.Compile(serverPat)
+	if err != nil {
+		return
+	}
+	if sitePat != "" {
+		site, err = glob.Compile(sitePat)
+	}
+	return
+}
+
+func (g *George) printServers(servers []forge.Server, serverGlob, siteGlob glob.Glob) error {
 	fmt.Printf("Available servers:\n")
 	serverSites, err := g.cache.ServerSites(servers)
 	if err != nil {
 		return err
 	}
 	for _, server := range serverSites {
-		fmt.Printf("  %s (%s)\n", server.Name, server.IPAddress)
+		match := serverGlob == nil ||
+			serverGlob.Match(server.Name) ||
+			serverGlob.Match(server.IPAddress)
 		for _, site := range server.Sites {
-			if expr != nil && !expr.Match(site.Name) {
-				continue
+			if siteGlob == nil && serverGlob.Match(site.Name) ||
+				siteGlob != nil && siteGlob.Match(site.Name) {
+				match = true
+				break
 			}
-			fmt.Printf("    %s\n", site.Name)
+		}
+		if match {
+			fmt.Printf("  %s (%s)\n", server.Name, server.IPAddress)
+			for _, site := range server.Sites {
+				if siteGlob == nil && serverGlob.Match(site.Name) ||
+					siteGlob != nil && siteGlob.Match(site.Name) {
+					fmt.Printf("    %s\n", site.Name)
+				}
+			}
 		}
 	}
 	return nil
+}
+
+func (g *George) SSH(serverId int) (*ssh.Session, error) {
+	err := g.SSHInstallKey(serverId)
+	if err != nil {
+		return nil, err
+	}
+	privateKeyBytes, err := g.sshPrivateKey()
+	if err != nil {
+		return nil, err
+	}
+	privateKey, err := ssh.ParsePrivateKey(privateKeyBytes)
+	if err != nil {
+		return nil, err
+	}
+	config := &ssh.ClientConfig{
+		User: "forge",
+		Auth: []ssh.AuthMethod{
+			ssh.PublicKeys(privateKey),
+		},
+		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
+	}
+	server, err := g.cache.Server(serverId)
+	if err != nil {
+		return nil, err
+	}
+	client, err := ssh.Dial("tcp", fmt.Sprintf("%s:22", server.IPAddress), config)
+	if err != nil {
+		return nil, err
+	}
+	return client.NewSession()
 }
 
 // SSHInstallKey registers the public SSH key with the given forge server,
@@ -161,23 +248,41 @@ func (g *George) SSHInstallKey(serverId int) error {
 	return nil
 }
 
-func (g *George) sshPublicKey() ([]byte, error) {
-	privateKeyPath := filepath.Join(g.homeDir, ".ssh", "id_rsa")
-	publicKeyPath := privateKeyPath + ".pub"
-	data, err := ioutil.ReadFile(publicKeyPath)
+func (g *George) sshPrivateKey() ([]byte, error) {
+	filename := filepath.Join(g.homeDir, ".ssh", "id_rsa")
+	data, err := ioutil.ReadFile(filename)
 	if os.IsNotExist(err) || len(data) == 0 {
-		fmt.Println("Generating an SSH key...")
-		// -N="" means empty password.
-		_, err := exec.Command("ssh-keygen", "-N", "", "-f", privateKeyPath).CombinedOutput()
+		err = g.sshKeygen(filename)
 		if err != nil {
-			return nil, fmt.Errorf("ssh-keygen: %v", err)
+			return nil, err
+		}
+		return g.sshPrivateKey()
+	}
+	return data, err
+}
+
+func (g *George) sshPublicKey() ([]byte, error) {
+	filename := filepath.Join(g.homeDir, ".ssh", "id_rsa")
+	filenamePub := filename + ".pub"
+	data, err := ioutil.ReadFile(filenamePub)
+	if os.IsNotExist(err) || len(data) == 0 {
+		err = g.sshKeygen(filename)
+		if err != nil {
+			return nil, err
 		}
 		return g.sshPublicKey()
 	}
 	return data, err
 }
 
-// sshKeyName generates a unique, reproducible name for the given SSH key.
+func (g *George) sshKeygen(privateKeyPath string) error {
+	fmt.Println("Generating an SSH key...")
+	// -N="" means empty password.
+	_, err := exec.Command("ssh-keygen", "-N", "", "-f", privateKeyPath).CombinedOutput()
+	return err
+}
+
+// sshKeyName returns a unique, irreversible and reproducible name for the given SSH key.
 func (s *George) sshKeyName(key []byte) string {
 	sum := sha512.Sum512_224(key)
 	sumStr := base32.StdEncoding.WithPadding(base32.NoPadding).EncodeToString(sum[:])

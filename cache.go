@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"sync"
 
 	"github.com/zippoxer/george/forge"
@@ -36,6 +37,21 @@ func (c *cache) Servers() ([]forge.Server, error) {
 	c.servers = servers
 	c.serversMu.Unlock()
 	return servers, nil
+}
+
+func (c *cache) Server(id int) (*forge.Server, error) {
+	servers, err := c.Servers()
+	if err != nil {
+		return nil, err
+	}
+	c.serversMu.Lock()
+	defer c.serversMu.Unlock()
+	for _, server := range servers {
+		if server.Id == id {
+			return &server, nil
+		}
+	}
+	return nil, fmt.Errorf("Server not found.")
 }
 
 func (c *cache) Sites(serverId int) ([]forge.Site, error) {

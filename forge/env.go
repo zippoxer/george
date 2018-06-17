@@ -11,19 +11,15 @@ type Env struct {
 	c        *Client
 }
 
-type envGetResponse struct {
-	Content string `json:"content"`
-}
-
 func (e *Env) Get() (string, error) {
 	req := &Request{
 		Method: "GET",
 		Path:   fmt.Sprintf("/servers/%d/sites/%d/env", e.serverId, e.siteId),
 	}
-	var resp envGetResponse
-	err := e.c.Do(context.Background(), req, &resp)
+	var env []byte
+	err := e.c.Do(context.Background(), req, &env)
 	if err != nil {
 		return "", err
 	}
-	return resp.Content, nil
+	return string(env), nil
 }

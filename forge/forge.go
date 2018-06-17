@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"net/http"
 	"time"
 )
@@ -93,8 +94,12 @@ func (c *Client) Do(ctx context.Context, req *Request, result interface{}) error
 	if resp.StatusCode != 200 {
 		return forgeError(resp.StatusCode)
 	}
-	if result == nil {
+	switch r := result.(type) {
+	case nil:
 		return nil
+	case *[]byte:
+		*r, err = ioutil.ReadAll(resp.Body)
+		return err
 	}
 	return json.NewDecoder(resp.Body).Decode(result)
 }

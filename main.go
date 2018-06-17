@@ -1,12 +1,17 @@
 package main
 
 import (
+	"compress/gzip"
+	"fmt"
+	"io"
 	"io/ioutil"
 	"log"
 	"os"
 	"os/exec"
 	"os/user"
 	"path/filepath"
+
+	"github.com/joho/godotenv"
 
 	"github.com/zippoxer/george/forge"
 	kingpin "gopkg.in/alecthomas/kingpin.v2"
@@ -26,6 +31,10 @@ var (
 	appSSH = app.Command("ssh",
 		"SSH to a server by name, IP or site domain. Wildcards are supported.")
 	appSSHTarget = appSSH.Arg("server", "Server name, IP or site domain.").String()
+
+	appMySQLDump = app.Command("mysqldump",
+		"mysqldump a website.")
+	appMySQLDumpSite = appMySQLDump.Arg("site", "Site name.").Required().String()
 )
 
 func main() {
@@ -67,8 +76,69 @@ func main() {
 		if err != nil {
 			log.Fatal(err)
 		}
+	case appMySQLDump.FullCommand():
+		server, site, err := george.SearchSite(*appMySQLDumpSite)
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		// Parse .env file and extract MySQL connection settings.
+		envRaw, err := client.Env(server.Id, site.Id).Get()
+		if err != nil {
+			log.Fatal(err)
+		}
+		env, err := godotenv.Unmarshal(envRaw)
+		if err != nil {
+			log.Fatal(err)
+		}
+		dbConn, _ := env["DB_CONNECTION"]
+		if dbConn == "" {
+			log.Fatal("No database found for this site.")
+		}
+		if dbConn != "mysql" {
+			log.Fatalf("Unsupported database %s", dbConn)
+		}
+		dbHost, _ := env["DB_HOST"]
+		dbPort, _ := env["DB_PORT"]
+		dbName, _ := env["DB_DATABASE"]
+		dbUser, _ := env["DB_USERNAME"]
+		dbPwd, _ := env["DB_PASSWORD"]
+
+		// Open an SSH session and execute mysqldump.
+		session, err := george.SSH(server.Id)
+		if err != nil {
+			log.Fatal(err)
+		}
+		pr, pw := io.Pipe()
+		done := make(chan struct{})
+		go func() {
+			gr, err := gzip.NewReader(pr)
+			if err != nil {
+				log.Fatal(err)
+			}
+			_, err = io.Copy(os.Stdout, gr)
+			if err == io.ErrClosedPipe {
+				done <- struct{}{}
+				return
+			}
+			if err != nil {
+				log.Fatal(err)
+			}
+		}()
+		session.Stdout = pw
+		session.Stderr = os.Stderr
+		cmd := fmt.Sprintf("mysqldump --host=%q --port=%q --user=%q --password=%q %q | gzip",
+			dbHost, dbPort, dbUser, dbPwd, dbName)
+		if err := session.Start(cmd); err != nil {
+			log.Fatalf("mysqldump: %v", err.Error())
+		}
+		if err := session.Wait(); err != nil {
+			log.Fatalf("mysqldump: %v", err.Error())
+		}
+		pr.Close()
+		<-done
 	default:
-		app.FatalUsage("no command specified.")
+		app.FatalUsage("No command specified.")
 	}
 	return
 }
