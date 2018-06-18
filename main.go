@@ -8,10 +8,9 @@ import (
 	"log"
 	"os"
 	"os/exec"
+	"os/signal"
 	"os/user"
 	"path/filepath"
-
-	"github.com/joho/godotenv"
 
 	"github.com/zippoxer/george/forge"
 	kingpin "gopkg.in/alecthomas/kingpin.v2"
@@ -30,7 +29,25 @@ var (
 
 	appSSH = app.Command("ssh",
 		"SSH to a server by name, IP or site domain. Wildcards are supported.")
-	appSSHTarget = appSSH.Arg("server", "Server name, IP or site domain.").String()
+	appSSHTarget = appSSH.
+			Arg("server", "Server name, IP or site domain.").
+			Required().
+			String()
+
+	appTunnel = app.Command("tunnel",
+		"Opens an SSH tunnel that forwards a server's port a local port.")
+	appTunnelTarget = appTunnel.
+			Arg("target", "Server name, IP or site domain.").
+			Required().
+			String()
+	appTunnelRemote = appTunnel.
+			Arg("remote-port", "").
+			Default("3306").
+			Uint16()
+	appTunnelLocal = appTunnel.
+			Arg("local-port", "").
+			Default("3307").
+			Uint16()
 
 	appMySQLDump     = app.Command("mysqldump", "mysqldump a website.")
 	appMySQLDumpSite = appMySQLDump.Arg("site", "Site name.").Required().String()
@@ -89,6 +106,57 @@ func main() {
 		if err := session.Wait(); err != nil {
 			log.Fatalf("%s: %v", cmd, err)
 		}
+	case appTunnel.FullCommand():
+		server, site, err := george.Search(*appTunnelTarget)
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		if site != nil && *appTunnelRemote == 3306 {
+			go func() {
+				env, err := client.Env(server.Id, site.Id).Get()
+				if err != nil {
+					fmt.Printf("failed fetching .env: %v\n", err)
+				}
+				dbConn := env.Get("DB_CONNECTION")
+				dbHost := env.Get("DB_HOST")
+				dbPort := env.Get("DB_PORT")
+				dbName := env.Get("DB_DATABASE")
+				dbUser := env.Get("DB_USERNAME")
+				dbPwd := env.Get("DB_PASSWORD")
+				fmt.Printf("\n%s credentials for %s:\n", dbConn, site.Name)
+				fmt.Printf("  host: %s:%s\n  user: %s\n  password: %s\n  database: %s\n",
+					dbHost, dbPort, dbUser, dbPwd, dbName)
+			}()
+		}
+
+		err = george.SSHInstallKey(server.Id)
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		fmt.Printf("tunneling %s:%d to 127.0.0.1:%d\n",
+			server.IPAddress, *appTunnelRemote, *appTunnelLocal)
+		cmd := exec.Command("ssh",
+			"-L",
+			fmt.Sprintf("%d:%s:%d", *appTunnelLocal, server.IPAddress, *appTunnelRemote),
+			"-N",
+			fmt.Sprintf("forge@%s", server.IPAddress))
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+
+		c := make(chan os.Signal, 2)
+		signal.Notify(c, os.Interrupt, os.Kill)
+		go func() {
+			<-c
+			cmd.Process.Kill()
+			os.Exit(1)
+		}()
+
+		err = cmd.Run()
+		if err != nil {
+			log.Fatal(err)
+		}
 	case appSSH.FullCommand():
 		server, site, err := george.Search(*appSSHTarget)
 		if err != nil {
@@ -119,11 +187,7 @@ func main() {
 		}
 
 		// Parse .env file and extract MySQL connection settings.
-		envRaw, err := client.Env(server.Id, site.Id).Get()
-		if err != nil {
-			log.Fatal(err)
-		}
-		env, err := godotenv.Unmarshal(envRaw)
+		env, err := client.Env(server.Id, site.Id).Get()
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -134,11 +198,11 @@ func main() {
 		if dbConn != "mysql" {
 			log.Fatalf("Unsupported database %s", dbConn)
 		}
-		dbHost, _ := env["DB_HOST"]
-		dbPort, _ := env["DB_PORT"]
-		dbName, _ := env["DB_DATABASE"]
-		dbUser, _ := env["DB_USERNAME"]
-		dbPwd, _ := env["DB_PASSWORD"]
+		dbHost := env.Get("DB_HOST")
+		dbPort := env.Get("DB_PORT")
+		dbName := env.Get("DB_DATABASE")
+		dbUser := env.Get("DB_USERNAME")
+		dbPwd := env.Get("DB_PASSWORD")
 
 		// Open an SSH session and execute mysqldump.
 		session, err := george.SSH(server.Id)

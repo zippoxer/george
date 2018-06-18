@@ -3,7 +3,17 @@ package forge
 import (
 	"context"
 	"fmt"
+	"log"
+
+	"github.com/joho/godotenv"
 )
+
+type DotEnv map[string]string
+
+func (e DotEnv) Get(key string) string {
+	s, _ := e[key]
+	return s
+}
 
 type Env struct {
 	serverId int
@@ -11,7 +21,7 @@ type Env struct {
 	c        *Client
 }
 
-func (e *Env) Get() (string, error) {
+func (e *Env) Get() (DotEnv, error) {
 	req := &Request{
 		Method: "GET",
 		Path:   fmt.Sprintf("/servers/%d/sites/%d/env", e.serverId, e.siteId),
@@ -19,7 +29,11 @@ func (e *Env) Get() (string, error) {
 	var env []byte
 	err := e.c.Do(context.Background(), req, &env)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
-	return string(env), nil
+	m, err := godotenv.Unmarshal(string(env))
+	if err != nil {
+		log.Fatal(err)
+	}
+	return DotEnv(m), nil
 }
