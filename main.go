@@ -32,9 +32,11 @@ var (
 		"SSH to a server by name, IP or site domain. Wildcards are supported.")
 	appSSHTarget = appSSH.Arg("server", "Server name, IP or site domain.").String()
 
-	appMySQLDump = app.Command("mysqldump",
-		"mysqldump a website.")
+	appMySQLDump     = app.Command("mysqldump", "mysqldump a website.")
 	appMySQLDumpSite = appMySQLDump.Arg("site", "Site name.").Required().String()
+
+	appLog     = app.Command("log", "Print the latest Laravel application log.")
+	appLogSite = appLog.Arg("site", "Site name.").Required().String()
 )
 
 func main() {
@@ -58,6 +60,34 @@ func main() {
 		err = saveAPIKey(*appLoginKey)
 		if err != nil {
 			log.Fatal(err)
+		}
+	case appLog.FullCommand():
+		server, site, err := george.SearchSite(*appLogSite)
+		if err != nil {
+			log.Fatal(err)
+		}
+		session, err := george.SSH(server.Id)
+		if err != nil {
+			log.Fatal(err)
+		}
+		session.Stderr = os.Stderr
+		pr, err := session.StdoutPipe()
+		if err != nil {
+			log.Fatal(err)
+		}
+		cmd := fmt.Sprintf("cat %q | gzip", site.Name+"/storage/logs/laravel.log")
+		if err := session.Start(cmd); err != nil {
+			log.Fatalf("%s: %v", cmd, err)
+		}
+		gzr, err := gzip.NewReader(pr)
+		if err != nil {
+			log.Fatal(err)
+		}
+		if _, err := io.Copy(os.Stdout, gzr); err != nil {
+			log.Fatal(err)
+		}
+		if err := session.Wait(); err != nil {
+			log.Fatalf("%s: %v", cmd, err)
 		}
 	case appSSH.FullCommand():
 		server, site, err := george.Search(*appSSHTarget)
@@ -115,34 +145,26 @@ func main() {
 		if err != nil {
 			log.Fatal(err)
 		}
-		pr, pw := io.Pipe()
-		done := make(chan struct{})
-		go func() {
-			gr, err := gzip.NewReader(pr)
-			if err != nil {
-				log.Fatal(err)
-			}
-			_, err = io.Copy(os.Stdout, gr)
-			if err == io.ErrClosedPipe {
-				done <- struct{}{}
-				return
-			}
-			if err != nil {
-				log.Fatal(err)
-			}
-		}()
-		session.Stdout = pw
 		session.Stderr = os.Stderr
+		pr, err := session.StdoutPipe()
+		if err != nil {
+			log.Fatal(err)
+		}
 		cmd := fmt.Sprintf("mysqldump --host=%q --port=%q --user=%q --password=%q %q | gzip",
 			dbHost, dbPort, dbUser, dbPwd, dbName)
 		if err := session.Start(cmd); err != nil {
-			log.Fatalf("mysqldump: %v", err.Error())
+			log.Fatalf("mysqldump: %v", err)
+		}
+		gzr, err := gzip.NewReader(pr)
+		if err != nil {
+			log.Fatal(err)
+		}
+		if _, err := io.Copy(os.Stdout, gzr); err != nil {
+			log.Fatal(err)
 		}
 		if err := session.Wait(); err != nil {
-			log.Fatalf("mysqldump: %v", err.Error())
+			log.Fatalf("mysqldump: %v", err)
 		}
-		pr.Close()
-		<-done
 	default:
 		app.FatalUsage("No command specified.")
 	}
