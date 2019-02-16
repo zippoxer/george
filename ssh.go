@@ -1,7 +1,7 @@
 package main
 
 import (
-	"github.com/zippoxer/george/forge"
+	"george/forge"
 )
 
 type SSH struct {

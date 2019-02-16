@@ -7,7 +7,7 @@ A command-line toolkit for [Laravel Forge](https://forge.laravel.com).
 First, make sure you have [Go](https://golang.org) installed. Then, install `george` with:
 
 ```bash
-go get -u github.com/zippoxer/george
+go get -u george
 ```
 
 Finally, login with API key provided at https://forge.laravel.com/user/profile#/api

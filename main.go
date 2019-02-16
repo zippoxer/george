@@ -12,7 +12,7 @@ import (
 	"os/user"
 	"path/filepath"
 
-	"github.com/zippoxer/george/forge"
+	"george/forge"
 	kingpin "gopkg.in/alecthomas/kingpin.v2"
 )
 
