@@ -4,19 +4,29 @@ A command-line toolkit for [Laravel Forge](https://forge.laravel.com).
 
 ## Getting started
 
+### Installing a binary for Windows or Linux
+
+Choose a binary from [releases](https://github.com/zippoxer/george/releases), download it and move it to a directory that's in your PATH environment variable.
+
+If you're on Windows, you should use `george` with [Git Bash](https://git-scm.com/downloads) or another bash-like shell.
+
+### Installing with Go
+
 First, make sure you have [Go](https://golang.org) installed. Then, install `george` with:
 
 ```bash
-go get -u george
+go get -u github.com/zippoxer/george
 ```
+
+If you get `george: command not found`, then add `$GOPATH/bin` (default for linux is `$HOME/go`, for Windows `%USERPROFILE%\go`) to your PATH and try again.
+
+### Logging in to Forge
 
 Finally, login with API key provided at https://forge.laravel.com/user/profile#/api
 
 ```bash
 george login "<Forge API Key>"
 ```
-
-If you get `george: command not found`, add `$GOPATH/bin` (default for linux is `$HOME/go`, for Windows `%USERPROFILE%\go`) to your PATH and try again.
 
 ## Commands
 
