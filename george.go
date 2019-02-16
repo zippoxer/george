@@ -129,7 +129,7 @@ func (g *George) SearchSite(pattern string) (*forge.Server, *forge.Site, error) 
 
 func (g *George) compileSearchPattern(pattern string) (server, site glob.Glob, err error) {
 	var serverPat, sitePat string
-	patterns := strings.Split(pattern, ":")
+	patterns := strings.Split(strings.ToLower(pattern), ":")
 	if len(patterns) == 2 {
 		serverPat, sitePat = patterns[0], patterns[1]
 	} else {
