@@ -11,8 +11,12 @@ import (
 	"os/signal"
 	"os/user"
 	"path/filepath"
+	"text/template"
+	"time"
 
 	"george/forge"
+	"github.com/phayes/freeport"
+	"github.com/skratchdot/open-golang/open"
 	kingpin "gopkg.in/alecthomas/kingpin.v2"
 )
 
@@ -55,6 +59,11 @@ var (
 
 	appLog     = app.Command("log", "Print the latest Laravel application log.")
 	appLogSite = appLog.Arg("site", "Site name.").Required().String()
+
+	appSequelPro     = app.Command("sequelpro", "Open site database in Sequel Pro.")
+	appSequelProSite = appSequelPro.Arg("site", "Site name.").
+				Required().
+				String()
 )
 
 func main() {
@@ -229,6 +238,157 @@ func main() {
 		}
 		if err := session.Wait(); err != nil {
 			log.Fatalf("mysqldump: %v", err)
+		}
+	case appSequelPro.FullCommand():
+		server, site, err := george.SearchSite(*appSequelProSite)
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		// Parse .env file and extract MySQL connection settings.
+		env, err := client.Env(server.Id, site.Id).Get()
+		if err != nil {
+			log.Fatal(err)
+		}
+		dbConn, _ := env["DB_CONNECTION"]
+		if dbConn == "" {
+			log.Fatal("No database found for this site.")
+		}
+		if dbConn != "mysql" {
+			log.Fatalf("Unsupported database %s", dbConn)
+		}
+		dbPort := env.Get("DB_PORT")
+		dbName := env.Get("DB_DATABASE")
+		dbUser := env.Get("DB_USERNAME")
+		dbPwd := env.Get("DB_PASSWORD")
+
+		// Open an SSH session and execute mysqldump.
+		err = george.SSHInstallKey(server.Id)
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		localPort, err := freeport.GetFreePort()
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		fmt.Printf("tunneling for database %s:%s to 127.0.0.1:%d\n",
+			server.IPAddress, dbPort, localPort)
+		cmd := exec.Command("ssh",
+			"-L",
+			fmt.Sprintf("%d:%s:%s", localPort, server.IPAddress, dbPort),
+			"-N",
+			fmt.Sprintf("forge@%s", server.IPAddress))
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+
+		c := make(chan os.Signal, 2)
+		signal.Notify(c, os.Interrupt, os.Kill)
+		go func() {
+			<-c
+			cmd.Process.Kill()
+			os.Exit(1)
+		}()
+
+		go func() {
+			time.Sleep(1 * time.Second)
+
+			fmt.Printf("Opening database in Sequel Pro...")
+
+			const fileTemplate = `
+	<?xml version="1.0" encoding="UTF-8"?>
+	<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+	<plist version="1.0">
+	<dict>
+		<key>ContentFilters</key>
+		<dict/>
+		<key>auto_connect</key>
+		<true/>
+		<key>data</key>
+		<dict>
+			<key>connection</key>
+			<dict>
+				<key>colorIndex</key>
+				<integer>0</integer>
+				<key>database</key>
+				<string>{{.DbName}}</string>
+				<key>host</key>
+				<string>127.0.0.1</string>
+				<key>name</key>
+				<string>{{.SiteName}}</string>
+				<key>password</key>
+				<string>{{.DbPwd}}</string>
+				<key>port</key>
+				<string>{{.LocalPort}}</string>
+				<key>rdbms_type</key>
+				<string>mysql</string>
+				<key>sslCACertFileLocation</key>
+				<string></string>
+				<key>sslCACertFileLocationEnabled</key>
+				<integer>0</integer>
+				<key>sslCertificateFileLocation</key>
+				<string></string>
+				<key>sslCertificateFileLocationEnabled</key>
+				<integer>0</integer>
+				<key>sslKeyFileLocation</key>
+				<string></string>
+				<key>sslKeyFileLocationEnabled</key>
+				<integer>0</integer>
+				<key>type</key>
+				<string>SPTCPIPConnection</string>
+				<key>useSSL</key>
+				<integer>0</integer>
+				<key>user</key>
+				<string>{{.DbUser}}</string>
+			</dict>
+		</dict>
+		<key>encrypted</key>
+		<false/>
+		<key>format</key>
+		<string>connection</string>
+		<key>queryFavorites</key>
+		<array/>
+		<key>queryHistory</key>
+		<array />
+		<key>rdbms_type</key>
+		<string>mysql</string>
+		<key>rdbms_version</key>
+		<string>5.6.10</string>
+		<key>version</key>
+		<integer>1</integer>
+	</dict>
+	</plist>
+	`
+
+			t := template.Must(template.New("spf").Parse(fileTemplate))
+			file, err := os.Create(os.TempDir() + site.Name + ".spf")
+			if err != nil {
+				log.Fatal(err)
+			}
+
+			t.Execute(file, struct {
+				DbName    string
+				DbPwd     string
+				DbUser    string
+				LocalPort int
+				SiteName  string
+			}{
+				dbName,
+				dbPwd,
+				dbUser,
+				localPort,
+				site.Name,
+			})
+
+			file.Close()
+
+			open.Run(file.Name())
+		}()
+
+		err = cmd.Run()
+		if err != nil {
+			log.Fatal(err)
 		}
 	default:
 		app.FatalUsage("No command specified.")
