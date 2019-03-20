@@ -14,7 +14,7 @@ import (
 	"text/template"
 	"time"
 
-	"george/forge"
+	"github.com/zippoxer/george/forge"
 	"github.com/phayes/freeport"
 	"github.com/skratchdot/open-golang/open"
 	kingpin "gopkg.in/alecthomas/kingpin.v2"

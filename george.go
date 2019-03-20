@@ -20,7 +20,7 @@ import (
 	"golang.org/x/crypto/ssh"
 
 	"github.com/gobwas/glob"
-	"george/forge"
+	"github.com/zippoxer/george/forge"
 )
 
 type George struct {

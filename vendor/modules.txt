@@ -1,0 +1,30 @@
+# github.com/alecthomas/template v0.0.0-20160405071501-a0175ee3bccc
+github.com/alecthomas/template
+github.com/alecthomas/template/parse
+# github.com/alecthomas/units v0.0.0-20151022065526-2efee857e7cf
+github.com/alecthomas/units
+# github.com/gobwas/glob v0.2.3
+github.com/gobwas/glob
+github.com/gobwas/glob/compiler
+github.com/gobwas/glob/syntax
+github.com/gobwas/glob/match
+github.com/gobwas/glob/syntax/ast
+github.com/gobwas/glob/util/runes
+github.com/gobwas/glob/syntax/lexer
+github.com/gobwas/glob/util/strings
+# github.com/joho/godotenv v1.3.0
+github.com/joho/godotenv
+# github.com/phayes/freeport v0.0.0-20180830031419-95f893ade6f2
+github.com/phayes/freeport
+# github.com/skratchdot/open-golang v0.0.0-20190104022628-a2dfa6d0dab6
+github.com/skratchdot/open-golang/open
+# golang.org/x/crypto v0.0.0-20190211182817-74369b46fc67
+golang.org/x/crypto/ssh
+golang.org/x/crypto/curve25519
+golang.org/x/crypto/ed25519
+golang.org/x/crypto/internal/chacha20
+golang.org/x/crypto/poly1305
+golang.org/x/crypto/ed25519/internal/edwards25519
+golang.org/x/crypto/internal/subtle
+# gopkg.in/alecthomas/kingpin.v2 v2.2.6
+gopkg.in/alecthomas/kingpin.v2

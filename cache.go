@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"sync"
 
-	"george/forge"
+	"github.com/zippoxer/george/forge"
 )
 
 type cache struct {
