@@ -458,7 +458,6 @@ func main() {
 			path,
 			args...,
 		)
-		log.Println(cmd.Args)
 		if err := cmd.Run(); err != nil {
 			log.Fatal(err)
 		}
