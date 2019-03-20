@@ -249,7 +249,7 @@ func (g *George) SSHInstallKey(serverId int) error {
 }
 
 func (g *George) sshPrivateKey() ([]byte, error) {
-	filename := filepath.Join(g.homeDir, ".ssh", "id_rsa")
+	filename := g.SSHPrivateKeyPath()
 	data, err := ioutil.ReadFile(filename)
 	if os.IsNotExist(err) || len(data) == 0 {
 		err = g.sshKeygen(filename)
@@ -262,8 +262,8 @@ func (g *George) sshPrivateKey() ([]byte, error) {
 }
 
 func (g *George) sshPublicKey() ([]byte, error) {
-	filename := filepath.Join(g.homeDir, ".ssh", "id_rsa")
-	filenamePub := filename + ".pub"
+	filename := g.SSHPrivateKeyPath()
+	filenamePub := g.SSHPublicKeyPath()
 	data, err := ioutil.ReadFile(filenamePub)
 	if os.IsNotExist(err) || len(data) == 0 {
 		err = g.sshKeygen(filename)
@@ -287,6 +287,14 @@ func (s *George) sshKeyName(key []byte) string {
 	sum := sha512.Sum512_224(key)
 	sumStr := base32.StdEncoding.WithPadding(base32.NoPadding).EncodeToString(sum[:])
 	return "george-" + sumStr
+}
+
+func (g *George) SSHPrivateKeyPath() string {
+	return filepath.Join(g.homeDir, ".ssh", "id_rsa")
+}
+
+func (g *George) SSHPublicKeyPath() string {
+	return g.SSHPrivateKeyPath() + ".pub"
 }
 
 // Encrypt encrypts data using 256-bit AES-GCM.  This both hides the content of

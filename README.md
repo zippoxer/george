@@ -32,13 +32,13 @@ george login "<Forge API Key>"
 
 ### SSH
 
-Quickly SSH into a server or website. No need to register your SSH key, `george` automatically registers your `~/.ssh/id_rsa.pub` into Forge.
+Quickly SSH into a server or site. No need to register your SSH key, `george` automatically registers your `~/.ssh/id_rsa.pub` into Forge.
 
 ```bash
 $ george ssh www.example.com
 ```
 
-If you've typed in a website domain, `george` will drop you right into it's laravel directory!
+If you've typed in a site domain, `george` will drop you right into it's laravel directory!
 
 ```bash
 forge@example-server:~/www.example.com.il$ php artisan fix-website
@@ -53,9 +53,9 @@ george ssh 128.64.32.16
 
 ### MySQLDump
 
-Tired of using `ssh`, `mysqldump` & `rsync` only to dump your website's database? Don't worry, `george` has got you covered!
+Tired of using `ssh`, `mysqldump` & `rsync` only to dump your site's database? Don't worry, `george` has got you covered!
 
-A single command to dump a website's database:
+A single command to dump a site's database:
 
 ```bash
 george mysqldump www.example.com > example.sql
@@ -65,7 +65,7 @@ Behind the scenes, `george` compresses the stream with gzip to transfer the dump
 
 ### Log
 
-Print a website's `laravel.log`:
+Print a site's `laravel.log`:
 
 ```bash
 george log www.example.com
@@ -78,6 +78,22 @@ george log www.example.com | code -
 ```
 
 Behind the scenes, `george` compresses the transfer of the log file with gzip, so even large log files should open within seconds.
+
+### Sequel Pro
+
+Opens a site database in Sequel Pro.
+
+```bash
+george sequelpro www.example.com
+```
+
+### WinSCP
+
+Opens an SFTP connection to a site or server in WinSCP.
+
+```bash
+george winscp www.example.com
+```
 
 ## About automatic SSH key registration
 

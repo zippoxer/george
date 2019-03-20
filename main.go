@@ -6,6 +6,7 @@ import (
 	"io"
 	"io/ioutil"
 	"log"
+	"net/url"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -14,9 +15,9 @@ import (
 	"text/template"
 	"time"
 
-	"github.com/zippoxer/george/forge"
 	"github.com/phayes/freeport"
 	"github.com/skratchdot/open-golang/open"
+	"github.com/zippoxer/george/forge"
 	kingpin "gopkg.in/alecthomas/kingpin.v2"
 )
 
@@ -60,10 +61,15 @@ var (
 	appLog     = app.Command("log", "Print the latest Laravel application log.")
 	appLogSite = appLog.Arg("site", "Site name.").Required().String()
 
-	appSequelPro     = app.Command("sequelpro", "Open site database in Sequel Pro.")
+	appSequelPro     = app.Command("sequelpro", "Open a site's database in Sequel Pro.")
 	appSequelProSite = appSequelPro.Arg("site", "Site name.").
 				Required().
 				String()
+
+	appWinSCP       = app.Command("winscp", "Opens an SFTP connection to a site or server in WinSCP.")
+	appWinSCPTarget = appWinSCP.Arg("target", "Server name, IP or site domain.").
+			Required().
+			String()
 )
 
 func main() {
@@ -388,6 +394,72 @@ func main() {
 
 		err = cmd.Run()
 		if err != nil {
+			log.Fatal(err)
+		}
+	case appWinSCP.FullCommand():
+		winscpPaths := []string{
+			`C:\Program Files (x86)\WinSCP\WinSCP.exe`,
+			`C:\Program Files\WinSCP\WinSCP.exe`,
+		}
+		var path string
+		for _, p := range winscpPaths {
+			if _, err := os.Stat(p); err == nil {
+				path = p
+			}
+		}
+		if path == "" {
+			log.Fatal("WinSCP.exe does not exist.")
+		}
+
+		server, site, err := george.Search(*appWinSCPTarget)
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		err = george.SSHInstallKey(server.Id)
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		// Generate PPK (if not exists) using WinSCP.
+		privateKeyPath := george.SSHPrivateKeyPath()
+		ppkPath := privateKeyPath + ".ppk"
+		if _, err := os.Stat(ppkPath); err != nil {
+			cmd := exec.Command(
+				path,
+				"/keygen",
+				privateKeyPath,
+				fmt.Sprintf(`/output=%s`, ppkPath),
+			)
+			cmd.Stdout = os.Stdout
+			cmd.Stderr = os.Stderr
+			cmd.Stdin = os.Stdin
+			err = cmd.Run()
+			if err != nil {
+				log.Fatal(err)
+			}
+		}
+
+		// Start WinSCP to open the connection to the given server.
+		connURL := &url.URL{
+			Scheme: "sftp",
+			User:   url.User("forge"),
+			Host:   server.IPAddress,
+			Path:   "/",
+		}
+		args := []string{
+			connURL.String(),
+			"/privatekey=" + ppkPath,
+		}
+		if site != nil {
+			args = append(args, "/rawsettings", "RemoteDirectory=/home/forge/"+site.Name)
+		}
+		cmd := exec.Command(
+			path,
+			args...,
+		)
+		log.Println(cmd.Args)
+		if err := cmd.Run(); err != nil {
 			log.Fatal(err)
 		}
 	default:
