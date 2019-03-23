@@ -17,6 +17,7 @@ builds:
     goarch:
       - amd64
 archive:
+  format: zip
   replacements:
     darwin: Darwin
     linux: Linux
