@@ -79,7 +79,7 @@ george log www.example.com | code -
 
 Behind the scenes, `george` compresses the transfer of the log file with gzip, so even large log files should open within seconds.
 
-### Sequel Pro
+### Sequel Pro (Mac only)
 
 Opens a site database in Sequel Pro.
 
@@ -87,7 +87,7 @@ Opens a site database in Sequel Pro.
 george sequelpro www.example.com
 ```
 
-### WinSCP
+### WinSCP (Windows only)
 
 Opens an SFTP connection to a site or server in WinSCP.
 
