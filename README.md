@@ -8,7 +8,7 @@ A command-line toolkit for [Laravel Forge](https://forge.laravel.com).
 
 Choose a binary from [releases](https://github.com/zippoxer/george/releases), download it and move it to a directory that's in your PATH environment variable.
 
-If you're on Windows, you should use `george` with [Git Bash](https://git-scm.com/downloads) or another bash-like shell.
+If you're on Windows, you should use `george` with [Git Bash](https://git-scm.com/downloads) or another bash-like shell with the `ssh` command and the `~/.ssh` directory available.
 
 ### Installing with Go
 
