@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
+	"log"
 	"os"
 	"os/exec"
 	"os/user"
@@ -29,16 +30,29 @@ type George struct {
 	homeDir string
 }
 
-func New(client *forge.Client) *George {
+func New(client *forge.Client, cacheMaxAge time.Duration) (*George, error) {
 	usr, err := user.Current()
 	if err != nil {
 		panic(err)
 	}
-	return &George{
+
+	g := &George{
 		client:  client,
 		cache:   newCache(client),
 		homeDir: usr.HomeDir,
 	}
+	if err := g.loadCache(cacheMaxAge); err != nil {
+		log.Printf("error loading george cache: %v", err)
+	}
+	return g, nil
+}
+
+func (g *George) loadCache(maxAge time.Duration) error {
+	return g.cache.Load(filepath.Join(g.homeDir, ".george-cache"), maxAge)
+}
+
+func (g *George) dumpCache() error {
+	return g.cache.Dump(filepath.Join(g.homeDir, ".george-cache"))
 }
 
 func (g *George) Search(pattern string) (*forge.Server, *forge.Site, error) {
@@ -87,6 +101,11 @@ func (g *George) SearchSite(pattern string) (*forge.Server, *forge.Site, error) 
 	if err != nil {
 		return nil, nil, err
 	}
+
+	if err := g.dumpCache(); err != nil {
+		log.Printf("error dumping george cache: %v", err)
+	}
+
 	var matchingSites []forge.Site
 	for _, server := range serverSites {
 		if siteGlob != nil && !serverGlob.Match(server.Name) && !serverGlob.Match(server.IPAddress) {

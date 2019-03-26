@@ -1,8 +1,11 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
+	"os"
 	"sync"
+	"time"
 
 	"github.com/zippoxer/george/forge"
 )
@@ -105,4 +108,50 @@ func (c *cache) ServerSites(servers []forge.Server) ([]ServerSites, error) {
 		}
 	}
 	return results, nil
+}
+
+type cacheDump struct {
+	Updated time.Time
+	Servers []forge.Server
+	Sites   map[int][]forge.Site
+}
+
+var cacheForever = time.Duration(-1)
+
+func (c *cache) Load(fileName string, maxAge time.Duration) error {
+	f, err := os.Open(fileName)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+
+	var dump cacheDump
+	if err := json.NewDecoder(f).Decode(&dump); err != nil {
+		return err
+	}
+
+	if maxAge != cacheForever && time.Since(dump.Updated) > maxAge {
+		return nil
+	}
+
+	c.servers = dump.Servers
+	c.sites = dump.Sites
+	return nil
+}
+
+func (c *cache) Dump(fileName string) error {
+	f, err := os.Create(fileName)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	dump := cacheDump{
+		Updated: time.Now(),
+		Servers: c.servers,
+		Sites:   c.sites,
+	}
+	return json.NewEncoder(f).Encode(dump)
 }

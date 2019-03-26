@@ -38,6 +38,7 @@ var (
 	appSSHTarget = appSSH.
 			Arg("server", "Server name, IP or site domain.").
 			Required().
+			HintAction(hintTargets(hintAll)).
 			String()
 
 	appTunnel = app.Command("tunnel",
@@ -45,6 +46,7 @@ var (
 	appTunnelTarget = appTunnel.
 			Arg("target", "Server name, IP or site domain.").
 			Required().
+			HintAction(hintTargets(hintAll)).
 			String()
 	appTunnelRemote = appTunnel.
 			Arg("remote-port", "").
@@ -56,19 +58,31 @@ var (
 			Uint16()
 
 	appMySQLDump     = app.Command("mysqldump", "mysqldump a website.")
-	appMySQLDumpSite = appMySQLDump.Arg("site", "Site name.").Required().String()
+	appMySQLDumpSite = appMySQLDump.
+				Arg("site", "Site name.").
+				Required().
+				HintAction(hintTargets(hintSites)).
+				String()
 
 	appLog     = app.Command("log", "Print the latest Laravel application log.")
-	appLogSite = appLog.Arg("site", "Site name.").Required().String()
+	appLogSite = appLog.
+			Arg("site", "Site name.").
+			Required().
+			HintAction(hintTargets(hintSites)).
+			String()
 
 	appSequelPro     = app.Command("sequelpro", "Open a site's database in Sequel Pro.")
-	appSequelProSite = appSequelPro.Arg("site", "Site name.").
+	appSequelProSite = appSequelPro.
+				Arg("site", "Site name.").
 				Required().
+				HintAction(hintTargets(hintSites)).
 				String()
 
 	appWinSCP       = app.Command("winscp", "Opens an SFTP connection to a site or server in WinSCP.")
-	appWinSCPTarget = appWinSCP.Arg("target", "Server name, IP or site domain.").
+	appWinSCPTarget = appWinSCP.
+			Arg("target", "Server name, IP or site domain.").
 			Required().
+			HintAction(hintTargets(hintSites)).
 			String()
 )
 
@@ -86,7 +100,10 @@ func main() {
 		log.Fatal(err)
 	}
 	client := forge.New(key)
-	george := New(client)
+	george, err := New(client, time.Minute)
+	if err != nil {
+		log.Fatal(err)
+	}
 
 	switch cmd {
 	case appLogin.FullCommand():
@@ -501,4 +518,49 @@ func apiKeyPath() (string, error) {
 		return "", err
 	}
 	return filepath.Join(usr.HomeDir, ".george-key"), nil
+}
+
+type hintType int
+
+const (
+	hintServers hintType = iota
+	hintSites
+	hintAll
+)
+
+func hintTargets(hintType hintType) func() []string {
+	return func() []string {
+		key, err := loadAPIKey()
+		if err != nil {
+			return nil
+		}
+		g, err := New(forge.New(key), cacheForever)
+		if err != nil {
+			return nil
+		}
+
+		var list []string
+		if hintType == hintAll || hintType == hintServers {
+			servers, err := g.cache.Servers()
+			if err != nil {
+				return nil
+			}
+			for _, s := range servers {
+				list = append(list, s.Name)
+				list = append(list, s.IPAddress)
+			}
+		}
+		if hintType == hintAll || hintType == hintSites {
+			sites, err := g.cache.ServerSites(nil)
+			if err != nil {
+				return nil
+			}
+			for _, server := range sites {
+				for _, site := range server.Sites {
+					list = append(list, site.Name)
+				}
+			}
+		}
+		return list
+	}
 }
