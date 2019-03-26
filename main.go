@@ -18,7 +18,7 @@ import (
 	"github.com/phayes/freeport"
 	"github.com/skratchdot/open-golang/open"
 	"github.com/zippoxer/george/forge"
-	kingpin "gopkg.in/alecthomas/kingpin.v2"
+	kingpin "github.com/zippoxer/kingpin"
 )
 
 var (
