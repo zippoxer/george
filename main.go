@@ -224,17 +224,23 @@ func main() {
 		if err != nil {
 			log.Fatal(err)
 		}
-		dbConn, _ := env["DB_CONNECTION"]
-		if dbConn == "" {
-			log.Fatal("No database found for this site.")
-		}
-		if dbConn != "mysql" {
-			log.Fatalf("Unsupported database %s", dbConn)
+		if env.Get("DB_NAME") == "" {
+			// Not WordPress, try Laravel:
+			dbConn, _ := env["DB_CONNECTION"]
+			if dbConn == "" {
+				log.Fatal("No database found for this site.")
+			}
+			if dbConn != "mysql" {
+				log.Fatalf("Unsupported database %s", dbConn)
+			}
 		}
 		dbHost := env.Get("DB_HOST")
 		dbPort := env.Get("DB_PORT")
-		dbName := env.Get("DB_DATABASE")
-		dbUser := env.Get("DB_USERNAME")
+		if dbPort == "" {
+			dbPort = "3306"
+		}
+		dbName := env.Get("DB_DATABASE", "DB_NAME")
+		dbUser := env.Get("DB_USERNAME", "DB_USER")
 		dbPwd := env.Get("DB_PASSWORD")
 
 		// Open an SSH session and execute mysqldump.

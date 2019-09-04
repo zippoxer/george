@@ -10,9 +10,13 @@ import (
 
 type DotEnv map[string]string
 
-func (e DotEnv) Get(key string) string {
-	s, _ := e[key]
-	return s
+func (e DotEnv) Get(keys ...string) string {
+	for _, key := range keys {
+		if s, _ := e[key]; s != "" {
+			return s
+		}
+	}
+	return ""
 }
 
 type Env struct {
