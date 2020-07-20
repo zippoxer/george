@@ -9,7 +9,7 @@ type Key struct {
 	Id        int    `json:"id"`
 	Name      string `json:"name"`
 	Status    string `json:"status"`
-	CreatedAt Time   `json:"created_at"`
+	// CreatedAt Time   `json:"created_at"`
 }
 
 type Keys struct {
